@@ -70,6 +70,10 @@ PS_ALIVE        = 0
 PS_EXPLODE      = 1
 PS_INVULN       = 2
 
+GS_TITLE = 0
+GS_PLAY  = 1
+GS_OVER  = 2
+
 ; --- charge beam ---
 CHARGE_THRESHOLD  = 40         ; frames held before release fires the beam
 CHARGE_MAX        = 90         ; cap for chargeTimer
@@ -118,13 +122,6 @@ start
         lda CIA2_ICR
 
         jsr build_charset
-        lda #0
-        sta score
-        sta score+1
-        sta score+2
-        lda #0
-        sta bossState
-        sta killCount
         jsr set_colors
         jsr sid_init
 
@@ -133,18 +130,9 @@ start
         lda #1
         sta front_is_a
 
-        jsr fill_front_from_map     ; fills BUF_A and positions zp_map @ col40
-        jsr copy_a_to_b             ; B starts identical to A
-        jsr init_hud_bar            ; fill rows 0-1 of both buffers with HUD bar
-        jsr init_sprites            ; sprite pointers (both buffers), regs, art
-        lda #30
-        sta spawnTimer          ; first enemy spawns soon
-        lda #0
-        sta spawnIndex
-        lda #ENEMY_FIRE_INTERVAL
-        sta enemyFireTimer
-        lda #6
-        sta enemyFireIndex
+        lda #GS_PLAY
+        sta gameState
+        jsr start_game
 
         lda #7
         sta fine_x
@@ -190,6 +178,9 @@ main_loop
         beq main_loop               ; wait for next frame
         lda #0
         sta frame_ready             ; consume it
+        lda gameState
+        cmp #GS_PLAY
+        bne ml_not_play
         jsr player_update
         jsr spawn_enemies
         jsr enemy_fire
@@ -204,6 +195,43 @@ main_loop
         jsr sort_sprites
         jsr build_schedule
         jmp main_loop
+ml_not_play
+        ; TITLE / OVER branches added in later tasks
+        jsr sound_update
+        jmp main_loop
+
+; start_game: per-run gameplay setup (called on TITLE->PLAY).
+start_game
+        lda #0
+        sta score
+        sta score+1
+        sta score+2
+        sta bossState
+        sta killCount
+        jsr fill_front_from_map
+        jsr copy_a_to_b
+        jsr init_hud_bar
+        jsr init_sprites
+        lda #PLAYER_LIVES
+        sta lives
+        lda #30
+        sta spawnTimer
+        lda #0
+        sta spawnIndex
+        lda #ENEMY_FIRE_INTERVAL
+        sta enemyFireTimer
+        lda #6
+        sta enemyFireIndex
+        lda #PS_ALIVE
+        sta playerState
+        lda #60
+        sta player_x
+        lda #0
+        sta player_x_hi
+        lda #120
+        sta player_y
+        jsr write_player_sprite
+        rts
 
 ; =====================================================================
 ;  RASTER IRQ CHAIN
@@ -2484,6 +2512,7 @@ ss_x     !byte 1
 msbset   !byte $01,$02,$04,$08,$10,$20,$40,$80
 msbclr   !byte $fe,$fd,$fb,$f7,$ef,$df,$bf,$7f
 playerState !byte 0        ; 0 alive, 1 exploding, 2 invulnerable
+gameState   !byte GS_PLAY      ; GS_TITLE / GS_PLAY / GS_OVER
 playerTimer !byte 0
 lives       !byte 3
 flashTimer  !byte 0        ; border flash countdown (game over)
