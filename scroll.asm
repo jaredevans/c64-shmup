@@ -1673,9 +1673,12 @@ ch_ypos
         cmp #HITH
         bcs ch_enext            ; |dY| >= HITH -> no hit
         ; --- HIT ---
+        lda vsExpand,x
+        bne ch_beamhit          ; piercing beam
+        ; ---- normal shot ----
         lda bossState
-        beq ch_normalkill       ; no boss -> normal enemy kill
-        jsr boss_take_hit       ; boss piece hit: drain HP, despawn bullet X
+        beq ch_normalkill
+        jsr boss_take_hit       ; despawn bullet + drain 1 HP
         jmp ch_bnext
 ch_normalkill
         jsr kill_enemy_y        ; explode enemy Y + score + killCount
@@ -1684,6 +1687,15 @@ ch_normalkill
         lda #255
         sta vsY,x
         jmp ch_bnext            ; this bullet consumed -> next bullet
+ch_beamhit
+        lda bossState
+        beq ch_beam_enemy
+        ; beam vs boss: drain once, DO NOT despawn beam, move to next bullet
+        jsr boss_drain_hp
+        jmp ch_bnext
+ch_beam_enemy
+        jsr kill_enemy_y        ; explode enemy Y + score
+        jmp ch_enext            ; beam survives -> test next enemy
 ch_enext
         iny
         jmp ch_eloop
