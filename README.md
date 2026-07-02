@@ -10,7 +10,8 @@ scratch in 6502 assembly. The whole game is a single source file (`scroll.asm`),
 Pilot a ship through a continuously scrolling starfield, dodging and destroying waves of enemies.
 Tap to fire, or hold to charge a piercing **beam** for the tougher moments. Rack up points, survive
 enemy fire, and every five kills a multi-part **boss** sweeps in — beat it for a score bonus and the
-waves resume.
+waves resume. Lose your last ship and it's **GAME OVER** — back to the animated title screen, ready
+for another run.
 
 ### Demo
 
@@ -20,6 +21,7 @@ waves resume.
 
 | Key | Action |
 |-----|--------|
+| `Space` (title screen) | Start the game |
 | `I` | Move up |
 | `J` | Move left |
 | `K` | Move down |
@@ -29,6 +31,13 @@ waves resume.
 
 ## Features
 
+- **Animated title screen** — "ARE-TYPE" spelled out in all 8 hardware sprites, one letter per
+  sprite. The letters glide in one at a time (last letter first), then ride a sine-wave bob with a
+  rolling rainbow color cycle and a beat pulse, over the still-scrolling starfield. A blinking
+  `PRESS FIRE TO START` prompt sits in the status bar.
+- **Game states & attract loop** — a TITLE → PLAY → GAME OVER state machine: lose the last ship and
+  a flashing `GAME OVER` (plus a red border blip) shows for a couple of seconds before the game
+  returns to the title, ready to start again.
 - **Hardware smooth scrolling** — fine scroll via `$D016` plus a double-buffered coarse-flip, so the
   playfield scrolls pixel-by-pixel with no tearing.
 - **Player ship** — keyboard-controlled (IJKL); tap Space for a single shot (up to 6 bullets on
@@ -78,7 +87,7 @@ of `scroll.asm` — identical code (it assembles to the same binary), with every
 - **Audio:** SID voices V1/V2/V3 driven by a frame-rate software envelope/sweep player.
 
 Built incrementally in stages (scroll → player → multiplexer → enemies → collisions → HUD → boss →
-audio).
+audio → charge beam → title screen & game states).
 
 ## Deep dive: keeping same-scanline sprites visible
 
