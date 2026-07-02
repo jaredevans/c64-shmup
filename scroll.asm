@@ -219,9 +219,15 @@ start_game
         sta bossState
         sta killCount
         sta chargeTimer          ; reset charge so a leftover charge can't fire on first release
+        ; mask IRQs during the buffer rebuild: copy_a_to_b shares zp_fsrc/zp_bdst
+        ; with the scroll IRQ's build_back_slice — an IRQ mid-copy repoints the
+        ; pointers and the resumed (zp),y writes walk past BUF_B's end into the
+        ; title letter sprites at $3C00 (boot's start runs this under sei too)
+        sei
         jsr fill_front_from_map
         jsr copy_a_to_b
         jsr init_hud_bar
+        cli
         jsr init_sprites
         lda #PLAYER_LIVES
         sta lives
