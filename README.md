@@ -32,6 +32,10 @@ another run.
 
 ## Features
 
+- **Boot splash screen** — the ARE-TYPE key art (`aretype.png`) converted to a full-screen
+  multicolor bitmap (Koala format, 160×200 in VIC bank 1), displayed for 3 seconds at power-on
+  before the title screen. See [`aretype-c64-preview.png`](aretype-c64-preview.png) for a pixel-exact
+  render of what the VIC shows.
 - **Animated title screen** — "ARE-TYPE" spelled out in all 8 hardware sprites, one letter per
   sprite. The letters glide in one at a time (last letter first), then ride a sine-wave bob with a
   rolling rainbow color cycle and a beat pulse, over the still-scrolling starfield. A blinking

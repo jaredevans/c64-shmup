@@ -137,6 +137,8 @@ start
         lda CIA1_ICR
         lda CIA2_ICR
 
+        jsr show_splash          ; 3-second ARE-TYPE bitmap, before any other init
+
         jsr build_charset
         jsr set_colors
         jsr sid_init
@@ -267,6 +269,62 @@ rebuild_playfield
         jsr fill_front_from_map
         jsr copy_a_to_b
         cli
+        rts
+
+; =====================================================================
+;  BOOT SPLASH: aretype.kla multicolor bitmap, shown ~3 s at power-on
+;  Data lives in VIC bank 1 (colram $5800, screen $5c00, bitmap $6000)
+;  so the packed bank-0 layout is untouched. Boot-only: runs under
+;  start's sei with IRQs masked, so the wait polls $D012 raster wraps.
+;  Exits with the screen blanked (border-only black); the rest of boot
+;  rebuilds bank 0, then $D011/$D016/$D018 turn the display back on.
+; =====================================================================
+show_splash
+        ; color RAM <- splash color table. Copies 4 x 256: the last 24
+        ; source bytes are zero fill past the 1000-byte table and land
+        ; in the unused color-RAM tail at $dbe8-$dbff.
+        ldx #0
+ss_cram lda splash_colram,x
+        sta $d800,x
+        lda splash_colram+$100,x
+        sta $d900,x
+        lda splash_colram+$200,x
+        sta $da00,x
+        lda splash_colram+$300,x
+        sta $db00,x
+        inx
+        bne ss_cram
+
+        lda splash_bg            ; Koala background byte
+        sta BGCOL0
+        lda #0
+        sta BORDER
+
+        lda $dd00                ; VIC bank 1 ($4000-$7fff)
+        and #%11111100
+        ora #%00000010
+        sta $dd00
+        lda #$78                 ; screen $5c00 (7<<4) + bitmap second half -> $6000
+        sta VICMEM
+        lda #%00111011           ; bitmap mode, screen on, 25 rows
+        sta SCROLY
+        lda #%00011000           ; multicolor, 40 columns
+        sta SCROLX
+
+        ldx #150                 ; 150 PAL frames = 3.0 s
+ss_wait lda #251                 ; line 251 is unique per frame ($d012 re-values
+ss_w1   cmp RASTER               ; for lines 256+ stop at 55)
+        bne ss_w1
+ss_w2   cmp RASTER
+        beq ss_w2
+        dex
+        bne ss_wait
+
+        lda #%00001011           ; text mode again but screen OFF: black out the
+        sta SCROLY               ; transition while boot rebuilds bank 0
+        lda $dd00                ; back to VIC bank 0
+        ora #%00000011
+        sta $dd00
         rts
 
 ; =====================================================================
@@ -3416,3 +3474,19 @@ mus_drum_data
          !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
          !byte 1,5,0,5,3,5,0,5,2,5,2,5,2,5,2,5
          !byte 255
+
+; =====================================================================
+;  BOOT SPLASH DATA (VIC bank 1) — aretype.kla, Koala format:
+;  2-byte load address, 8000B bitmap, 1000B screen, 1000B colram, 1B bg.
+;  Regenerate with: npx retropixels -c yuv -r 16 -d bayer8x8 \
+;                       -o aretype.kla aretype.png
+;  Screen RAM must be $0400-aligned and the bitmap $2000-aligned inside
+;  the bank; $4000 holds the music, so the bitmap takes $6000.
+; =====================================================================
+* = $5800
+splash_colram   !binary "aretype.kla",1000,9002
+* = $5c00
+splash_screen   !binary "aretype.kla",1000,8002
+* = $6000
+splash_bitmap   !binary "aretype.kla",8000,2
+splash_bg       !binary "aretype.kla",1,10002
