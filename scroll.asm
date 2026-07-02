@@ -2682,7 +2682,7 @@ bc_let
         inx
         cpx #104
         bne bc_let
-        ; --- uppercase glyphs at codes 39..49 (A E F G I M O P R T V) ---
+        ; --- uppercase glyphs at codes 39..50 (A E F G I M O P R T V C) ---
         ldx #0
 bc_upper
         lda upper_glyphs,x
@@ -2893,7 +2893,7 @@ letter_glyphs
         !byte %00110000,%00110000,%01111100,%00110000,%00110000,%00110110,%00011100,%00000000  ; 37 t
         !byte %00000000,%00011000,%00011000,%00000000,%00000000,%00011000,%00011000,%00000000  ; 38 :
 
-; uppercase glyphs at codes 39.. : A E F G I M O P R T V
+; uppercase glyphs at codes 39..50 : A E F G I M O P R T V C
 upper_glyphs
         !byte %00111100,%01100110,%01100110,%01111110,%01100110,%01100110,%01100110,%00000000  ; 39 A
         !byte %01111110,%01100000,%01100000,%01111100,%01100000,%01100000,%01111110,%00000000  ; 40 E
