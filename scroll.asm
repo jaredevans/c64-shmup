@@ -435,6 +435,15 @@ dth_col_val !byte 0              ; scratch: blink color for color-RAM pass (reus
 ; return to title after OVER_FRAMES frames.
 over_update
         inc titleFrame           ; reuse titleFrame for blink cadence
+        ; border flash countdown (player_update doesn't run in OVER; without
+        ; this the red border sticks and exposes the 40/38-col band offsets)
+        lda flashTimer
+        beq ou_noflash
+        dec flashTimer
+        bne ou_noflash
+        lda #0
+        sta BORDER
+ou_noflash
         lda overTimer            ; first OVER frame: wipe the HUD band here —
         cmp #OVER_FRAMES         ; on the death frame itself draw_hud still ran
         bne ou_noclear           ; after pu_gameover and re-stamped the digits
