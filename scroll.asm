@@ -303,17 +303,66 @@ tu_slide
         sta logoCurX,x
         dex
         bpl tu_slide
-        ; --- write sprite X (low byte; all home X < 256) and Y each frame ---
+        ; --- Step 1: snap settled letters to homeX at frame 24 ---
+        lda titlePhase
+        bne tu_steady_ok
+        lda titleFrame
+        cmp #24
+        bcc tu_pos_setup         ; still sliding — skip snap
+        ldx #7
+tu_snap lda logoHomeX,x
+        sta logoCurX,x
+        dex
+        bpl tu_snap
+        lda #1
+        sta titlePhase
+tu_steady_ok
+tu_pos_setup
+        ; --- precompute logoShift = titleFrame >> 2 (rainbow roll speed) ---
+        lda titleFrame
+        lsr
+        lsr
+        sta logoShift
+        ; --- write sprite registers each frame ---
         ldx #7
 tu_pos  txa
         asl
         tay                      ; Y = 2*x (VIC sprite register offset)
         lda logoCurX,x
         sta VIC,y                ; $D000 + 2x  (X low byte)
-        lda #LOGO_Y
-        sta VIC+1,y              ; $D001 + 2x  (Y)
-        lda #1                   ; white (rainbow added Task 4)
+        ; --- sine bob Y: LOGO_Y + sineTable[(titleFrame + X*8) & 63] ---
+        txa
+        asl
+        asl
+        asl                      ; A = X*8
+        clc
+        adc titleFrame
+        and #%00111111           ; index = (titleFrame + X*8) & 63
+        stx tmpSlot
+        tax
+        lda sineTable,x
+        ldx tmpSlot              ; restore X = letter index
+        clc
+        adc #LOGO_Y              ; unsigned add; negative entries wrap correctly
+        sta VIC+1,y              ; Y register (Y still = 2*x)
+        ; --- rainbow color: logoPalette[(logoShift + X) & 7] ---
+        txa
+        clc
+        adc logoShift
+        and #7
+        stx tmpSlot
+        tax
+        lda logoPalette,x
+        ldx tmpSlot              ; restore X = letter index
         sta SP0COL,x
+        ; --- pulse: every 32 frames, 4-frame white flash overrides rainbow ---
+        lda titleFrame
+        and #%00011111
+        cmp #4
+        bcs tu_nopulse
+        lda #1
+        sta SP0COL,x
+tu_nopulse
         dex
         bpl tu_pos
         jsr draw_title_hud
@@ -2678,6 +2727,7 @@ chargeTimer !byte 0        ; frames Space held; >=CHARGE_THRESHOLD -> beam on re
 ; title screen vars
 titlePhase  !byte 0        ; 0 = slide-in entrance, 1 = steady loop
 titleFrame  !byte 0        ; per-frame counter for title animations
+logoShift   !byte 0        ; titleFrame>>2, precomputed each frame before tu_pos
 logoCurX    !fill 8,0      ; current X per logo letter (for slide-in easing)
 bulColor    !byte 0        ; scratch: color for spawn_player_bullet
 bulExpand   !byte 0        ; scratch: expand flag for spawn_player_bullet
