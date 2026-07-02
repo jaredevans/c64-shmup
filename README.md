@@ -60,8 +60,12 @@ another run.
   scrolling playfield by a **raster split**, with a BCD score and custom digit + letter glyphs.
 - **Boss** — a five-piece cluster that enters, bobs, fires bullet volleys, has shared HP, flashes when
   hit, and explodes with a bonus on defeat.
-- **SID sound effects** — a small per-voice sound engine (frequency sweeps + auto gate-off) playing
-  fire, explosion, player-hit, and boss-alert effects.
+- **Background music** — a driving, three-voice *Dies irae* battle remix plays continuously across
+  the title, gameplay, and game-over screens: pulse-wave lead and bass plus a noise/triangle drum
+  kit (kick, snare, hi-hats), looping every ~25 seconds.
+- **SID sound effects that share the chip with the music** — fire, explosion, player-hit, and
+  boss-alert effects (frequency sweeps + auto gate-off) all play on voice 3, briefly *stealing* the
+  drum voice and handing it back on the beat, so the melody and bassline never stutter.
 
 ## Building & running
 
@@ -89,10 +93,13 @@ of `scroll.asm` — identical code (it assembles to the same binary), with every
   per-frame scroll work, the HUD raster split, and the sprite multiplexing.
 - **Memory:** everything lives in VIC bank 0 (`$0000–$3FFF`); buffers, charset, sprites, and the
   runtime data block are hand-placed to avoid the char-ROM shadow and code/buffer overlap.
-- **Audio:** SID voices V1/V2/V3 driven by a frame-rate software envelope/sweep player.
+- **Audio:** a frame-rate music player owns SID voices V1 (lead) and V2 (bass); V3 is shared —
+  drums normally, stolen by the SFX sweep engine while an effect plays (the drum stream keeps
+  advancing silently so the beat never drifts). Music code + note data live at `$4000`, outside
+  the VIC bank.
 
 Built incrementally in stages (scroll → player → multiplexer → enemies → collisions → HUD → boss →
-audio → charge beam → title screen & game states → high-score table).
+audio → charge beam → title screen & game states → high-score table → background music).
 
 ## Deep dive: keeping same-scanline sprites visible
 
@@ -154,3 +161,7 @@ plainchant rendered on the C64's SID chip, transcribed note-for-note from the ma
 arranged in three voices. See [`DIES-IRAE.md`](DIES-IRAE.md) for the full write-up (the chant,
 the transcription process, the SID rendering, and how it was kept faithful), or just listen to
 [`dies-irae.wav`](dies-irae.wav).
+
+The game's in-game soundtrack is its battle-remix cousin: [`musical_score.asm`](musical_score.asm)
+recasts the chant as driving D-minor game music (energised lead, galloping bassline, drum backbeat)
+— hear it standalone in [`musical_score.wav`](musical_score.wav), or just play the game.
