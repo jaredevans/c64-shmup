@@ -2176,6 +2176,14 @@ bc_let
         inx
         cpx #104
         bne bc_let
+        ; --- uppercase glyphs at codes 39..49 (A E F G I M O P R T V) ---
+        ldx #0
+bc_upper
+        lda upper_glyphs,x
+        sta CHARSET + 39*8, x
+        inx
+        cpx #88
+        bne bc_upper
         rts
 
 ; sid_init: master volume max, all gates off, clear sfx timers
@@ -2381,9 +2389,26 @@ letter_glyphs
         !byte %00110000,%00110000,%01111100,%00110000,%00110000,%00110110,%00011100,%00000000  ; 37 t
         !byte %00000000,%00011000,%00011000,%00000000,%00000000,%00011000,%00011000,%00000000  ; 38 :
 
+; uppercase glyphs at codes 39.. : A E F G I M O P R T V
+upper_glyphs
+        !byte %00111100,%01100110,%01100110,%01111110,%01100110,%01100110,%01100110,%00000000  ; 39 A
+        !byte %01111110,%01100000,%01100000,%01111100,%01100000,%01100000,%01111110,%00000000  ; 40 E
+        !byte %01111110,%01100000,%01100000,%01111100,%01100000,%01100000,%01100000,%00000000  ; 41 F
+        !byte %00111100,%01100110,%01100000,%01101110,%01100110,%01100110,%00111100,%00000000  ; 42 G
+        !byte %01111110,%00011000,%00011000,%00011000,%00011000,%00011000,%01111110,%00000000  ; 43 I
+        !byte %01100011,%01110111,%01111111,%01101011,%01100011,%01100011,%01100011,%00000000  ; 44 M
+        !byte %00111100,%01100110,%01100110,%01100110,%01100110,%01100110,%00111100,%00000000  ; 45 O
+        !byte %01111100,%01100110,%01100110,%01111100,%01100000,%01100000,%01100000,%00000000  ; 46 P
+        !byte %01111100,%01100110,%01100110,%01111100,%01101100,%01100110,%01100110,%00000000  ; 47 R
+        !byte %01111110,%00011000,%00011000,%00011000,%00011000,%00011000,%00011000,%00000000  ; 48 T
+        !byte %01100110,%01100110,%01100110,%01100110,%01100110,%00111100,%00011000,%00000000  ; 49 V
+
 ; HUD label strings (screen codes; space = code 0)
 label_score !byte 26,27,28,29,30,38,0              ; "Score: "
 label_ships !byte 26,31,32,33,34,0,35,30,36,37,38,0  ; "Ships left: "
+; screen codes; space = 0. S reuses existing code 26.
+label_press    !byte 46,47,40,26,26,0,41,43,47,40,0,48,45,0,26,48,39,47,48,0  ; "PRESS FIRE TO START"
+label_gameover !byte 42,39,44,40,0,45,49,40,47,0                              ; "GAME OVER"
 
 ; =====================================================================
 ;  MAP DATA (column-major, 25 bytes/column), same generator as stage 1
@@ -2536,3 +2561,65 @@ sfxSweepLo  !fill 3,0          ; signed 16-bit per-frame freq delta
 sfxSweepHi  !fill 3,0
 sfxRelease  !fill 3,0          ; control-reg value with gate cleared (note-off)
 sidbase_lo  !byte $00,$07,$0e  ; SID voice base low bytes (high byte $d4)
+
+; =====================================================================
+;  TITLE LOGO LETTER SPRITES (hires, 16px wide, blocks 240-246 @ $3C00)
+;  Baseline art; refine pixel shapes at the screenshot verify step.
+; =====================================================================
+* = $3c00
+glyph_A     ; block 240 (21 rows × 3 + 1 pad = 64 bytes)
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00             ; rows  0- 2 blank
+        !byte $0f,$c0,$00, $1f,$e0,$00, $38,$1c,$00, $38,$1c,$00  ; rows  3- 6 apex+sides
+        !byte $3f,$fc,$00, $3f,$fc,$00, $38,$1c,$00, $38,$1c,$00  ; rows  7-10 bar+sides
+        !byte $38,$1c,$00, $38,$1c,$00, $38,$1c,$00, $38,$1c,$00  ; rows 11-14 sides
+        !byte $38,$1c,$00, $38,$1c,$00, $00,$00,$00              ; rows 15-17 sides+blank
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 18-20 blank
+        !byte $00                                                 ; pad
+glyph_R     ; block 241 (21 rows × 3 + 1 pad = 64 bytes)
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00             ; rows  0- 2 blank
+        !byte $3f,$fc,$00, $3f,$fc,$00, $38,$1c,$00, $38,$1c,$00  ; rows  3- 6 top+sides
+        !byte $38,$1c,$00, $3f,$fc,$00, $3f,$fc,$00, $38,$e0,$00  ; rows  7-10 mid bar, leg starts
+        !byte $38,$70,$00, $38,$38,$00, $38,$1c,$00, $38,$1c,$00  ; rows 11-14 diagonal leg
+        !byte $38,$0e,$00, $38,$0e,$00, $00,$00,$00              ; rows 15-17 leg kicks out+blank
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 18-20 blank
+        !byte $00                                                 ; pad
+glyph_E     ; block 242 (21 rows × 3 + 1 pad = 64 bytes)
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00             ; rows  0- 2 blank
+        !byte $3f,$fc,$00, $3f,$fc,$00, $38,$00,$00, $38,$00,$00  ; rows  3- 6 top+left
+        !byte $3f,$fc,$00, $3f,$fc,$00, $38,$00,$00, $38,$00,$00  ; rows  7-10 mid+left
+        !byte $38,$00,$00, $3f,$fc,$00, $3f,$fc,$00, $00,$00,$00  ; rows 11-14 bot bar
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 15-17 blank
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 18-20 blank
+        !byte $00                                                 ; pad
+glyph_dash  ; block 243 (21 rows × 3 + 1 pad = 64 bytes)
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00             ; rows  0- 2 blank
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00, $00,$00,$00  ; rows  3- 6 blank
+        !byte $0f,$f0,$00, $0f,$f0,$00, $00,$00,$00, $00,$00,$00  ; rows  7-10 dash
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00, $00,$00,$00  ; rows 11-14 blank
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 15-17 blank
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 18-20 blank
+        !byte $00                                                 ; pad
+glyph_T     ; block 244 (21 rows × 3 + 1 pad = 64 bytes)
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00             ; rows  0- 2 blank
+        !byte $3f,$fc,$00, $3f,$fc,$00, $03,$c0,$00, $03,$c0,$00  ; rows  3- 6 top bar+stem
+        !byte $03,$c0,$00, $03,$c0,$00, $03,$c0,$00, $03,$c0,$00  ; rows  7-10 stem
+        !byte $03,$c0,$00, $03,$c0,$00, $03,$c0,$00, $00,$00,$00  ; rows 11-14 stem
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 15-17 blank
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 18-20 blank
+        !byte $00                                                 ; pad
+glyph_Y     ; block 245 (21 rows × 3 + 1 pad = 64 bytes)
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00             ; rows  0- 2 blank
+        !byte $38,$1c,$00, $38,$1c,$00, $1c,$38,$00, $0e,$70,$00  ; rows  3- 6 arms spread
+        !byte $07,$e0,$00, $03,$c0,$00, $03,$c0,$00, $03,$c0,$00  ; rows  7-10 merge+stem
+        !byte $03,$c0,$00, $03,$c0,$00, $03,$c0,$00, $00,$00,$00  ; rows 11-14 stem
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 15-17 blank
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 18-20 blank
+        !byte $00                                                 ; pad
+glyph_P     ; block 246 (21 rows × 3 + 1 pad = 64 bytes)
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00             ; rows  0- 2 blank
+        !byte $3f,$fc,$00, $3f,$fc,$00, $38,$1c,$00, $38,$1c,$00  ; rows  3- 6 top+sides
+        !byte $3f,$fc,$00, $3f,$fc,$00, $38,$00,$00, $38,$00,$00  ; rows  7-10 mid bar
+        !byte $38,$00,$00, $38,$00,$00, $38,$00,$00, $00,$00,$00  ; rows 11-14 left stem
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 15-17 blank
+        !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 18-20 blank
+        !byte $00                                                 ; pad
