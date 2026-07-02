@@ -2735,63 +2735,60 @@ sv_active
 sv_ret
         rts
 
-; sound_update: advance all three voices (called once per frame)
+; sound_update: music tick + the single shared SFX voice (V3).
+; (All SFX live on V3 since the music owns V1/V2 — see music block.)
 sound_update
-        jsr music_tick           ; music runs in every state (title/play/over)
-        ldx #0
-        jsr sound_voice
-        ldx #1
-        jsr sound_voice
+        jsr music_tick
         ldx #2
         jsr sound_voice
         rts
 
-; sfx_fire: short laser "pew" on V1
+; sfx_fire: short laser "pew" — on V3, stealing the music drums briefly
 sfx_fire
         lda #$09
-        sta $d405               ; AD: attack 0, decay 9
+        sta $d413               ; V3 AD: attack 0, decay 9
         lda #$00
-        sta $d406               ; SR: sustain 0, release 0
+        sta $d414               ; V3 SR: sustain 0, release 0
         lda #$00
-        sta sfxFreqLo+0
-        sta $d400
+        sta sfxFreqLo+2
+        sta $d40e
         lda #$28
-        sta sfxFreqHi+0
-        sta $d401               ; start freq $2800
+        sta sfxFreqHi+2
+        sta $d40f               ; start freq $2800
         lda #$00
-        sta sfxSweepLo+0
+        sta sfxSweepLo+2
         lda #$fd
-        sta sfxSweepHi+0        ; sweep -$0300/frame
+        sta sfxSweepHi+2        ; sweep -$0300/frame
         lda #$20
-        sta sfxRelease+0        ; saw, gate off
+        sta sfxRelease+2        ; saw, gate off
         lda #$21
-        sta $d404               ; saw + gate on
+        sta $d412               ; saw + gate on
         lda #6
-        sta sfxTimer+0
+        sta sfxTimer+2
         rts
 
-; sfx_explosion: noise "boom" on V2
+; sfx_explosion: noise "boom" — on V3, stealing the music drums
 sfx_explosion
         lda #$0a
-        sta $d40c               ; V2 AD
+        sta $d413               ; V3 AD
         lda #$00
-        sta $d40d               ; V2 SR
+        sta $d414               ; V3 SR
         lda #$00
-        sta sfxFreqLo+1
-        sta $d407
+        sta sfxFreqLo+2
+        sta $d40e
         lda #$18
-        sta sfxFreqHi+1
-        sta $d408               ; start freq $1800
+        sta sfxFreqHi+2
+        sta $d40f               ; start freq $1800
         lda #$00
-        sta sfxSweepLo+1
+        sta sfxSweepLo+2
         lda #$ff
-        sta sfxSweepHi+1        ; sweep -$0100/frame
+        sta sfxSweepHi+2        ; sweep -$0100/frame
         lda #$80
-        sta sfxRelease+1        ; noise, gate off
+        sta sfxRelease+2        ; noise, gate off
         lda #$81
-        sta $d40b               ; noise + gate on
-        lda #16
-        sta sfxTimer+1
+        sta $d412               ; noise + gate on (V3 ctrl — NOT $d40b/V2:
+        lda #16                 ;  the classic remap slip is missing this one)
+        sta sfxTimer+2
         rts
 
 ; sfx_hit: damage "thud" on V3
@@ -3293,7 +3290,14 @@ mtd_g   sta mus_tmp
 mtd_t   lda mus_tmp
         bne mtd_hit                     ; nonzero -> a drum hit
         jmp mtd_dec                     ; 0 -> rest (let prev decay)
-mtd_hit cmp #1
+mtd_hit ; SFX steal: while an effect owns V3, advance silently (beat stays
+        ; in time) but write no V3 registers; drums resume next hit after.
+        lda sfxTimer+2
+        beq mtd_free
+        jmp mtd_dec              ; stolen: skip kick/snare/hat writes
+mtd_free
+        lda mus_tmp              ; reload hit type (sfxTimer+2 check clobbered A)
+        cmp #1
         bne mtd_sn
         ; kick: low triangle, fast decay
         lda #$06 : sta $d413
