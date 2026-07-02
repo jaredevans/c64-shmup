@@ -10,8 +10,9 @@ scratch in 6502 assembly. The whole game is a single source file (`scroll.asm`),
 Pilot a ship through a continuously scrolling starfield, dodging and destroying waves of enemies.
 Tap to fire, or hold to charge a piercing **beam** for the tougher moments. Rack up points, survive
 enemy fire, and every five kills a multi-part **boss** sweeps in — beat it for a score bonus and the
-waves resume. Lose your last ship and it's **GAME OVER** — back to the animated title screen, ready
-for another run.
+waves resume. Lose your last ship and it's **GAME OVER** — the starfield freezes under a **top-5
+score table** with your new entry flashing, then it's back to the animated title screen, ready for
+another run.
 
 ### Demo
 
@@ -36,8 +37,12 @@ for another run.
   rolling rainbow color cycle and a beat pulse, over the still-scrolling starfield. A blinking
   `PRESS FIRE TO START` prompt sits in the status bar.
 - **Game states & attract loop** — a TITLE → PLAY → GAME OVER state machine: lose the last ship and
-  a flashing `GAME OVER` (plus a red border blip) shows for a couple of seconds before the game
-  returns to the title, ready to start again.
+  a flashing `GAME OVER` (plus a red border blip) shows before the game returns to the title, ready
+  to start again.
+- **High-score table** — the world freezes on GAME OVER and a `TOP SCORES` table of the session's
+  five best runs appears over the halted starfield, with the score you just earned flashing. Held
+  ~5 seconds, or press Space to skip back to the title. Scores live in RAM: they persist across
+  runs and reset when the machine powers off (this is a C64 — no save files!).
 - **Hardware smooth scrolling** — fine scroll via `$D016` plus a double-buffered coarse-flip, so the
   playfield scrolls pixel-by-pixel with no tearing.
 - **Player ship** — keyboard-controlled (IJKL); tap Space for a single shot (up to 6 bullets on
@@ -87,7 +92,7 @@ of `scroll.asm` — identical code (it assembles to the same binary), with every
 - **Audio:** SID voices V1/V2/V3 driven by a frame-rate software envelope/sweep player.
 
 Built incrementally in stages (scroll → player → multiplexer → enemies → collisions → HUD → boss →
-audio → charge beam → title screen & game states).
+audio → charge beam → title screen & game states → high-score table).
 
 ## Deep dive: keeping same-scanline sprites visible
 
