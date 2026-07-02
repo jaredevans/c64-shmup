@@ -745,11 +745,16 @@ sp_base0                         ; X = base index of the live front schedule ban
         lda schY,x               ; Y screen position of the first sprite to program this frame
         sec                      ; set carry for subtraction
         sbc #MUX_LEAD            ; fire IRQ MUX_LEAD=16 lines BEFORE sprite Y: allows programming time
-        cmp #SPLIT_LINE+1       ; with a big MUX_LEAD, schY-LEAD can land at/above
-        bcs sp_armok            ; the split. Clamp so we never schedule a passed
-        lda #SPLIT_LINE+1       ; raster (would hang the chain a whole frame); the
-sp_armok                       ; mux burst then programs from here via its behind-check.
-        sta RASTER               ; arm raster IRQ: fire MUX_LEAD lines above first sprite (clamped)
+        sta spArm               ; desired arm line = schY - lead. The beam is
+        lda RASTER              ; already ~2 lines past the split by now, so
+        clc                     ; clamp against the LIVE raster, not the split
+        adc #2                  ; constant: arming a passed line would not fire
+        cmp spArm               ; until NEXT frame (chain stall: sprites stay
+        bcc sp_armok            ; parked + no frame tick = half-speed game).
+        sta spArm               ; beam+2 >= desired -> arm beam+2 instead; the
+sp_armok                       ; mux burst then programs late entries immediately
+        lda spArm               ; via its behind-check.
+        sta RASTER               ; arm raster IRQ: max(schY-MUX_LEAD, beam+2) — always ahead of beam
         jmp sp_exit              ; sprites exist: skip no-sprites fallback path
 sp_nosprites                     ; no sprites this frame: bypass mux chain entirely
         lda #<scroll_irq         ; point IRQ vector straight back to scroll_irq (no mux needed)
@@ -773,7 +778,9 @@ mux_irq                          ; raster IRQ: program one hw sprite per band, c
 mux_loop                         ; inner loop: program sprites at or behind the current raster
         ldx muxIdx               ; X = schedule index of next virtual sprite to program
         cpx muxEnd               ; compare to end sentinel
-        bcs mux_done             ; muxIdx >= muxEnd: all virtual sprites done for this frame
+        bcc mx_go               ; mux_done is past short-branch range from here
+        jmp mux_done             ; muxIdx >= muxEnd: all virtual sprites done for this frame
+mx_go
         ; program hw sprite muxHW from schedule entry x
         lda muxHW                ; A = current hardware sprite slot number (1-7)
         asl                      ; multiply by 2: X reg at even offset, Y reg at odd offset
@@ -828,9 +835,14 @@ mx_hwok                          ; Y = next valid hw sprite slot (1-7)
         sbc #MUX_LEAD            ; desired IRQ line = next sprite Y minus MUX_LEAD=16
         cmp RASTER               ; desired line vs. current raster position (live $D012 read)
         bcc mux_ltramp           ; desired < current: beam already past it — loop to program now
+        beq mux_ltramp          ; desired == current -> the VIC compared the latch
+                                ; at this line's start, so arming the line we're
+                                ; ON would not fire until NEXT frame -> program now
         sta RASTER               ; arm next IRQ at (next sprite Y - MUX_LEAD)
         cmp RASTER               ; re-read $D012: race check (did beam pass while storing?)
         bcc mux_ltramp           ; still behind — loop immediately rather than stalling a frame
+        beq mux_ltramp          ; raster reached the armed line as we wrote it ->
+                                ; its compare already passed -> program now
         jmp mux_exit             ; IRQ armed safely — exit handler and wait for it to fire
 mux_done                         ; all virtual sprites programmed; hand chain back to scroll_irq
         ; last sprite done -> hand off to scroll_irq at line 250
@@ -3077,6 +3089,7 @@ schFront !byte 0          ; buffer the IRQ reads (0/1)
 muxIdx   !byte 0          ; current schedule array index (already buffer-offset)
 muxEnd   !byte 0          ; stop index (base+count)
 muxHW    !byte 1          ; next hardware sprite (1..7, round robin)
+spArm    !byte 0          ; split_irq scratch: first mux arm line (schY-MUX_LEAD)
 ; bullet fire cooldown
 fireCool !byte 0                      ; frames before player can fire again
 prevSpace   !byte 0        ; 1 if Space was down last frame (edge detect)
