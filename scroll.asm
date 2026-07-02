@@ -109,6 +109,17 @@ build_row= $03              ; next screen row to build this char-step (0..24)
 front_is_a = $04            ; 1 = buffer A is front, 0 = buffer B is front
 frame_ready = $06           ; nonzero = a frame elapsed; cleared by main loop
 
+; --- music player zp (ported from musical_score.asm $f0-$f9, relocated
+;     clear of front_is_a ($04), frame_ready ($06), and the game's
+;     zp_bdst/zp_fsrc/zp_dst/zp_map pointer block at $f5-$fe) ---
+mus_lead_ptr = $07           ; $07/$08
+mus_lead_cd  = $09
+mus_bass_ptr = $0a           ; $0a/$0b
+mus_bass_cd  = $0c
+mus_drum_ptr = $0d           ; $0d/$0e
+mus_drum_cd  = $0f
+mus_tmp      = $10
+
 ROWS_PER_FRAME = 4          ; build 4 rows/frame -> 25 rows done in ~7 frames
 
 ; =====================================================================
@@ -129,6 +140,7 @@ start
         jsr build_charset
         jsr set_colors
         jsr sid_init
+        jsr music_init           ; stream ptrs + V1/V2 music voice setup
 
         ; --- initial state: A is front, fill A from first 40 map columns,
         ;     and copy A->B so both buffers start identical -------------
@@ -2725,6 +2737,7 @@ sv_ret
 
 ; sound_update: advance all three voices (called once per frame)
 sound_update
+        jsr music_tick           ; music runs in every state (title/play/over)
         ldx #0
         jsr sound_voice
         ldx #1
@@ -3141,3 +3154,248 @@ glyph_P     ; block 246 (21 rows × 3 + 1 pad = 64 bytes)
         !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 15-17 blank
         !byte $00,$00,$00, $00,$00,$00, $00,$00,$00              ; rows 18-20 blank
         !byte $00                                                 ; pad
+
+; =====================================================================
+;  BACKGROUND MUSIC  (ported from musical_score.asm — Dies Irae battle
+;  remix; lead V1 pulse / bass V2 pulse / drums V3 noise+triangle)
+;  Lives at $4000: outside VIC bank 0, so neither the <$2000 code
+;  ceiling nor the <$3800 data ceiling is affected.
+; =====================================================================
+* = $4000
+
+; music_init: stream pointers + the music-owned V1/V2 voice setup.
+; Called once at boot after sid_init. Does NOT touch $d418 (sid_init owns it).
+music_init
+        ; voice 1 (lead) pulse 50%, punchy-singing envelope
+        lda #$00
+        sta $d402               ; V1 pulse width lo
+        lda #$08
+        sta $d403               ; V1 pulse width hi
+        lda #$1a
+        sta $d405               ; V1 AD: atk1 dec10
+        lda #$a8
+        sta $d406               ; V1 SR: sus10 rel8
+        ; voice 2 (bass) pulse, plucky
+        lda #$00
+        sta $d409
+        lda #$08
+        sta $d40a
+        lda #$0a
+        sta $d40c               ; V2 AD: atk0 dec10
+        lda #$06
+        sta $d40d               ; V2 SR: sus0 rel6
+        ; stream pointers + countdowns (0 -> load on first tick)
+        lda #<mus_lead_data
+        sta mus_lead_ptr
+        lda #>mus_lead_data
+        sta mus_lead_ptr+1
+        lda #<mus_bass_data
+        sta mus_bass_ptr
+        lda #>mus_bass_data
+        sta mus_bass_ptr+1
+        lda #<mus_drum_data
+        sta mus_drum_ptr
+        lda #>mus_drum_data
+        sta mus_drum_ptr+1
+        lda #0
+        sta mus_lead_cd
+        sta mus_bass_cd
+        sta mus_drum_cd
+        rts
+
+; music_tick: advance all three voices one frame (50 Hz).
+music_tick
+        jsr mtick_lead
+        jsr mtick_bass
+        jsr mtick_drums
+        rts
+
+; ---- LEAD (voice 1, pulse) -----------------------------------------
+mtick_lead
+        lda mus_lead_cd
+        bne mtl_dec
+        ldy #0
+        lda (mus_lead_ptr),y
+        cmp #$ff
+        bne mtl_g
+        lda #<mus_lead_data : sta mus_lead_ptr
+        lda #>mus_lead_data : sta mus_lead_ptr+1
+        ldy #0
+        lda (mus_lead_ptr),y
+mtl_g   sta mus_tmp
+        iny
+        lda (mus_lead_ptr),y
+        sta mus_lead_cd
+        lda mus_lead_ptr : clc : adc #2 : sta mus_lead_ptr
+        bcc mtl_t : inc mus_lead_ptr+1
+mtl_t   lda mus_tmp
+        bne mtl_on
+        lda #$40 : sta $d404            ; rest -> gate off
+        jmp mtl_dec
+mtl_on  tax
+        lda mus_freqLo,x : sta $d400
+        lda mus_freqHi,x : sta $d401
+        lda #$40 : sta $d404            ; pulse, gate off (retrigger)
+        lda #$41 : sta $d404            ; pulse, gate on
+mtl_dec dec mus_lead_cd
+        rts
+
+; ---- BASS (voice 2, pulse) -----------------------------------------
+mtick_bass
+        lda mus_bass_cd
+        bne mtb_dec
+        ldy #0
+        lda (mus_bass_ptr),y
+        cmp #$ff
+        bne mtb_g
+        lda #<mus_bass_data : sta mus_bass_ptr
+        lda #>mus_bass_data : sta mus_bass_ptr+1
+        ldy #0
+        lda (mus_bass_ptr),y
+mtb_g   sta mus_tmp
+        iny
+        lda (mus_bass_ptr),y
+        sta mus_bass_cd
+        lda mus_bass_ptr : clc : adc #2 : sta mus_bass_ptr
+        bcc mtb_t : inc mus_bass_ptr+1
+mtb_t   lda mus_tmp
+        bne mtb_on
+        lda #$40 : sta $d40b
+        jmp mtb_dec
+mtb_on  tax
+        lda mus_freqLo,x : sta $d407
+        lda mus_freqHi,x : sta $d408
+        lda #$40 : sta $d40b
+        lda #$41 : sta $d40b
+mtb_dec dec mus_bass_cd
+        rts
+
+; ---- DRUMS (voice 3, noise/triangle) -------------------------------
+mtick_drums
+        lda mus_drum_cd
+        beq mtd_load
+        dec mus_drum_cd
+        rts
+mtd_load ldy #0
+        lda (mus_drum_ptr),y
+        cmp #$ff
+        bne mtd_g
+        lda #<mus_drum_data : sta mus_drum_ptr
+        lda #>mus_drum_data : sta mus_drum_ptr+1
+        ldy #0
+        lda (mus_drum_ptr),y
+mtd_g   sta mus_tmp
+        iny
+        lda (mus_drum_ptr),y
+        sta mus_drum_cd
+        lda mus_drum_ptr : clc : adc #2 : sta mus_drum_ptr
+        bcc mtd_t : inc mus_drum_ptr+1
+mtd_t   lda mus_tmp
+        bne mtd_hit                     ; nonzero -> a drum hit
+        jmp mtd_dec                     ; 0 -> rest (let prev decay)
+mtd_hit cmp #1
+        bne mtd_sn
+        ; kick: low triangle, fast decay
+        lda #$06 : sta $d413
+        lda #$00 : sta $d414
+        lda #$80 : sta $d40e
+        lda #$04 : sta $d40f
+        lda #$10 : sta $d412
+        lda #$11 : sta $d412
+        jmp mtd_dec
+mtd_sn  cmp #2
+        bne mtd_hat
+        ; snare: mid noise
+        lda #$06 : sta $d413
+        lda #$00 : sta $d414
+        lda #$00 : sta $d40e
+        lda #$20 : sta $d40f
+        lda #$80 : sta $d412
+        lda #$81 : sta $d412
+        jmp mtd_dec
+mtd_hat ; hi-hat: high noise, very fast decay
+        lda #$02 : sta $d413
+        lda #$00 : sta $d414
+        lda #$00 : sta $d40e
+        lda #$70 : sta $d40f
+        lda #$80 : sta $d412
+        lda #$81 : sta $d412
+mtd_dec dec mus_drum_cd
+        rts
+
+; =====================================================================
+;  MUSIC DATA (verbatim from musical_score.asm, labels mus_-prefixed)
+; =====================================================================
+mus_freqLo
+         !byte 0,90,156,226,45,123,207,39,133,232,81,193,55,180,56,196,89,247,157,78,10,208,162,129,109,103,112,137,178,237,59,156,19,160,69,2,218,206,224,17,100,218,118,57,38,64,137,4,180,156
+mus_freqHi
+         !byte 0,4,4,4,5,5,5,6,6,6,7,7,8,8,9,9,10,10,11,12,13,13,14,15,16,17,18,19,20,21,23,24,26,27,29,31,32,34,36,39,41,43,46,49,52,55,58,62,65,69
+
+; --- streams: pairs of (value, duration-in-frames); $ff = loop ---
+mus_lead_data
+         !byte 0,80,0,80,0,80,0,40,34,10,35,10,37,10,39,10
+         !byte 30,10,30,10,29,10,30,10,27,10,25,10,27,10,27,10
+         !byte 30,10,34,10,32,10,30,10,32,10,29,10,27,10,27,10
+         !byte 30,10,30,10,29,10,30,10,27,10,25,10,27,10,27,10
+         !byte 30,10,34,10,32,10,30,10,32,10,29,10,27,10,27,10
+         !byte 42,10,42,10,41,10,42,10,39,10,37,10,39,10,39,10
+         !byte 42,10,46,10,44,10,42,10,44,10,41,10,39,10,39,10
+         !byte 42,10,42,10,41,10,42,10,39,10,37,10,39,10,39,10
+         !byte 42,10,46,10,44,10,42,10,44,10,41,10,39,10,39,10
+         !byte 30,10,30,10,29,10,30,10,27,10,25,10,27,10,27,10
+         !byte 30,10,34,10,32,10,30,10,32,10,29,10,27,10,27,10
+         !byte 30,10,30,10,29,10,30,10,27,10,25,10,27,10,27,10
+         !byte 39,5,37,5,35,5,34,5,32,5,30,5,29,5,27,5
+         !byte 27,40,255
+mus_bass_data
+         !byte 15,10,15,10,15,10,15,10,15,10,15,10,15,10,15,10
+         !byte 13,10,13,10,13,10,13,10,13,10,13,10,13,10,13,10
+         !byte 11,10,11,10,11,10,11,10,11,10,11,10,11,10,11,10
+         !byte 10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10
+         !byte 15,10,15,10,15,10,15,10,15,10,15,10,15,10,15,10
+         !byte 13,10,13,10,13,10,13,10,13,10,13,10,13,10,13,10
+         !byte 11,10,11,10,11,10,11,10,11,10,11,10,11,10,11,10
+         !byte 10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10
+         !byte 15,10,15,10,15,10,15,10,15,10,15,10,15,10,15,10
+         !byte 13,10,13,10,13,10,13,10,13,10,13,10,13,10,13,10
+         !byte 11,10,11,10,11,10,11,10,11,10,11,10,11,10,11,10
+         !byte 10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10
+         !byte 15,10,15,10,27,10,15,10,15,10,27,10,15,10,15,10
+         !byte 13,10,13,10,25,10,13,10,13,10,25,10,13,10,13,10
+         !byte 11,10,11,10,23,10,11,10,11,10,23,10,11,10,11,10
+         !byte 10,10,10,10,22,10,10,10,10,10,22,10,10,10,10,10
+         !byte 255
+mus_drum_data
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,2,5,2,5,2,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,3,5
+         !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5
+         !byte 1,5,0,5,3,5,0,5,2,5,2,5,2,5,2,5
+         !byte 255
