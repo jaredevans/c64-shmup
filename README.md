@@ -138,10 +138,10 @@ Four changes work together:
 
 1. **`MUX_LEAD = 16`** *(the main fix)* — fire the interrupt far enough ahead to program a dense band
    of same-line sprites before the raster catches up.
-2. **Split-line clamp** — with a large lead, the interrupt for a sprite near the top of the playfield
-   would want to fire *above* the HUD raster split and schedule a line that's already passed, hanging
-   the chain for a whole frame. The first multiplexer interrupt is clamped to fire just below the
-   split instead.
+2. **Beam clamp** — with a large lead, the interrupt for a sprite near the top of the playfield
+   would want to fire *above* the HUD raster split — a line the raster has already passed, which
+   would hang the chain for a whole frame. The first multiplexer interrupt is clamped to fire just
+   ahead of wherever the beam actually is (`max(spriteY − MUX_LEAD, raster + 2)`).
 3. **Capacity guard** — a hardware sprite is reused 7 slots later in the schedule; if that reuse would
    land on a sprite still being drawn, the surplus sprite is **cleanly dropped** rather than half-drawn,
    so a band that genuinely exceeds 7 degrades gracefully instead of corrupting.
@@ -153,6 +153,19 @@ The first point does the heavy lifting; the others make the edge cases (top of s
 behave instead of breaking. Net result: bullet streams and crossfire stay on screen during heavy
 combat, with at worst a gentle flicker only when you exceed what the hardware can physically show on
 one line.
+
+**Sequel: the clamp that stalled the chain.** The original version of point 2 clamped the first
+multiplexer interrupt to a *constant* line just below the split — but by the time the split handler
+wrote the raster register, the beam was already a couple of lines past that constant. The VIC-II only
+compares its raster latch at the start of each line, so an interrupt armed *at or behind* the beam
+never fires that frame: the whole sprite chain silently stalled, every multiplexed sprite stayed
+parked off-screen, and the end-of-frame interrupt that ticks game logic was skipped too. Fighting
+near the top of the playfield triggered this on every other frame — measured in the emulator as
+**25 fps, exactly half of PAL's 50**, with all bullets and enemies blinking. The same off-by-one hid
+in the multiplexer's own chaining check, which treated "next interrupt line **equals** the current
+line" as safely armed when it too can never fire. The rule both fixes enforce: **never arm the raster
+register with a line the beam has already reached** — clamp against the live raster position and
+treat an equal line as "program it now."
 
 ## Bonus: Dies Irae on the SID
 
