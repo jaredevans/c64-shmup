@@ -82,6 +82,8 @@ SHIP_COLOR_NORMAL = 1          ; white hull (matches SP0COL init)
 SHIP_COLOR_CHARGE = 3          ; cyan  (pulses with SHIP_COLOR_NORMAL while charging)
 SHIP_COLOR_READY  = 7          ; yellow (steady, charge >= threshold)
 
+LOGO_Y      = 96              ; base raster Y of the title logo band
+
 ; ---- two screen buffers (both inside VIC bank 0) -----------------------
 BUF_A    = $0400
 BUF_B    = $3800            ; moved from $0c00: program code+tables grew past $0c00 and
@@ -130,9 +132,9 @@ start
         lda #1
         sta front_is_a
 
-        lda #GS_PLAY
-        sta gameState
-        jsr start_game
+        jsr fill_front_from_map     ; initial starfield fill so scrolling is ready
+        jsr copy_a_to_b
+        jsr enter_title             ; set up logo sprites, enter GS_TITLE
 
         lda #7
         sta fine_x
@@ -196,7 +198,14 @@ main_loop
         jsr build_schedule
         jmp main_loop
 ml_not_play
-        ; TITLE / OVER branches added in later tasks
+        lda gameState               ; re-load: prior cmp may have clobbered A
+        cmp #GS_TITLE
+        bne ml_over
+        jsr title_update
+        jsr sound_update
+        jmp main_loop
+ml_over
+        ; GS_OVER branch added in Task 5
         jsr sound_update
         jmp main_loop
 
@@ -232,6 +241,143 @@ start_game
         sta player_y
         jsr write_player_sprite
         rts
+
+; =====================================================================
+;  TITLE ROUTINES
+; =====================================================================
+
+; enter_title: set up the 8 logo sprites and enter GS_TITLE.
+enter_title
+        lda #0
+        sta titleFrame
+        sta titlePhase           ; 0 = slide-in entrance
+        ; clear stale mux schedule (Amendment C: stale schedule clobbers logo sprites)
+        sta schCount
+        sta schCount+1
+        ; sprite pointers: sprites 0-7 -> logo letter blocks, both buffers
+        ldx #7
+et_ptr  lda logoPtrs,x
+        sta BUF_A+$3f8,x
+        sta BUF_B+$3f8,x
+        dex
+        bpl et_ptr
+        ; all hires (not multicolor), Y-expanded, no X-expand, sprites in front
+        lda #0
+        sta SPMC
+        sta XXPAND
+        sta $d010                ; MSB clear (all sprites X < 256)
+        sta SPBGPR               ; sprites in front of background
+        lda #%11111111
+        sta YXPAND
+        sta SPENA
+        ; seed slide-in: all letters start bunched at left edge (X=24)
+        ldx #7
+et_seed lda #24
+        sta logoCurX,x
+        dex
+        bpl et_seed
+        ; clear HUD rows 0-1 in both buffers so title shows only the prompt
+        lda #0
+        ldx #79
+et_clr  sta BUF_A,x
+        sta BUF_B,x
+        dex
+        bpl et_clr
+        lda #GS_TITLE
+        sta gameState
+        rts
+
+; title_update: per-frame TITLE logic (sprite placement + prompt + start input).
+title_update
+        inc titleFrame
+        ; --- slide-in easing: curX += (homeX - curX) >> 2 ---
+        ldx #7
+tu_slide
+        lda logoHomeX,x
+        sec
+        sbc logoCurX,x           ; A = home - cur (>= 0, letters ease right)
+        lsr
+        lsr                      ; delta = (home-cur)/4
+        clc
+        adc logoCurX,x
+        sta logoCurX,x
+        dex
+        bpl tu_slide
+        ; --- write sprite X (low byte; all home X < 256) and Y each frame ---
+        ldx #7
+tu_pos  txa
+        asl
+        tay                      ; Y = 2*x (VIC sprite register offset)
+        lda logoCurX,x
+        sta VIC,y                ; $D000 + 2x  (X low byte)
+        lda #LOGO_Y
+        sta VIC+1,y              ; $D001 + 2x  (Y)
+        lda #1                   ; white (rainbow added Task 4)
+        sta SP0COL,x
+        dex
+        bpl tu_pos
+        jsr draw_title_hud
+        ; --- scan the Space row ourselves (player_update doesn't run in TITLE) ---
+        lda #$7f
+        sta $dc00                ; select CIA port A row $7f (space key row)
+        lda $dc01
+        sta keyrow7
+        ; --- FIRE (space) edge detect -> start game ---
+        and #%00010000           ; bit4: 0 = pressed, 1 = not pressed (active-low)
+        bne tu_nofire            ; bit set = NOT pressed
+        lda prevSpace
+        bne tu_held              ; was already down last frame -> no new edge
+        ; rising edge: space freshly pressed -> start the game
+        lda #1
+        sta prevSpace            ; carry "down" into PLAY so no stray first shot
+        jsr start_game
+        lda #GS_PLAY
+        sta gameState
+        rts
+tu_held
+        lda #1
+        sta prevSpace
+        rts
+tu_nofire
+        lda #0
+        sta prevSpace
+        rts
+
+; draw_title_hud: blink "PRESS FIRE TO START" in the static HUD band.
+; label_press terminates with $ff (interior spaces are screen code 0 = blank tile).
+draw_title_hud
+        ; --- write chars to both screen buffers, row 1 col 10 ---
+        ldx #0
+dth_txt lda label_press,x
+        cmp #$ff
+        beq dth_done
+        sta BUF_A+40+10,x
+        sta BUF_B+40+10,x
+        inx
+        bne dth_txt
+dth_done
+        ; --- determine blink color and stash in scratch ---
+        ; blink on when titleFrame bit5 = 0, dim when bit5 = 1
+        lda titleFrame
+        and #%00100000
+        beq dth_on               ; bit5 = 0 -> bright
+        lda #6                   ; bit5 = 1 -> dim
+        jmp dth_savecolor
+dth_on  lda #HUD_COLOR
+dth_savecolor
+        sta dth_col_val          ; save color; reload per-iteration below
+        ; --- write color to color RAM for each label char ---
+        ldx #0
+dth_cl  lda label_press,x
+        cmp #$ff
+        beq dth_cret
+        lda dth_col_val          ; reload color (A was clobbered by label read)
+        sta COLORRAM+40+10,x
+        inx
+        bne dth_cl
+dth_cret
+        rts
+dth_col_val !byte 0              ; scratch: blink color for color-RAM pass
 
 ; =====================================================================
 ;  RASTER IRQ CHAIN
@@ -271,7 +417,13 @@ split_irq
         ora fine_x
         sta SCROLX
         ; arm next: mux chain (if sprites) else scroll_irq@250
+        ; Amendment B: only park mux sprites during GS_PLAY; in TITLE the logo
+        ; sprites are written directly each frame and must not be clobbered.
+        lda gameState
+        cmp #GS_PLAY
+        bne sp_nopark
         jsr park_mux_sprites
+sp_nopark
         lda #1
         sta muxHW
         ldx #0
@@ -2407,8 +2559,8 @@ upper_glyphs
 label_score !byte 26,27,28,29,30,38,0              ; "Score: "
 label_ships !byte 26,31,32,33,34,0,35,30,36,37,38,0  ; "Ships left: "
 ; screen codes; space = 0. S reuses existing code 26.
-label_press    !byte 46,47,40,26,26,0,41,43,47,40,0,48,45,0,26,48,39,47,48,0  ; "PRESS FIRE TO START"
-label_gameover !byte 42,39,44,40,0,45,49,40,47,0                              ; "GAME OVER"
+label_press    !byte 46,47,40,26,26,0,41,43,47,40,0,48,45,0,26,48,39,47,48,$ff  ; "PRESS FIRE TO START" ($ff terminator; interior 0=space)
+label_gameover !byte 42,39,44,40,0,45,49,40,47,$ff                              ; "GAME OVER" ($ff terminator)
 
 ; =====================================================================
 ;  MAP DATA (column-major, 25 bytes/column), same generator as stage 1
@@ -2523,6 +2675,10 @@ muxHW    !byte 1          ; next hardware sprite (1..7, round robin)
 fireCool !byte 0
 prevSpace   !byte 0        ; 1 if Space was down last frame (edge detect)
 chargeTimer !byte 0        ; frames Space held; >=CHARGE_THRESHOLD -> beam on release
+; title screen vars
+titlePhase  !byte 0        ; 0 = slide-in entrance, 1 = steady loop
+titleFrame  !byte 0        ; per-frame counter for title animations
+logoCurX    !fill 8,0      ; current X per logo letter (for slide-in easing)
 bulColor    !byte 0        ; scratch: color for spawn_player_bullet
 bulExpand   !byte 0        ; scratch: expand flag for spawn_player_bullet
 ; sort/build scratch
@@ -2536,8 +2692,12 @@ ss_x     !byte 1
 ; bit masks indexed by hardware sprite number 0..7
 msbset   !byte $01,$02,$04,$08,$10,$20,$40,$80
 msbclr   !byte $fe,$fd,$fb,$f7,$ef,$df,$bf,$7f
+; title logo tables
+logoHomeX   !byte 104,124,144,164,184,204,224,244  ; home X per letter (A R E - T Y P E)
+logoPtrs    !byte 240,241,242,243,244,245,246,242  ; sprite block numbers (A R E - T Y P E)
+logoPalette !byte 1,7,8,2,4,3,5,14                ; rainbow cycle colors (Task 4)
 playerState !byte 0        ; 0 alive, 1 exploding, 2 invulnerable
-gameState   !byte GS_PLAY      ; GS_TITLE / GS_PLAY / GS_OVER
+gameState   !byte GS_TITLE     ; GS_TITLE / GS_PLAY / GS_OVER
 playerTimer !byte 0
 lives       !byte 3
 flashTimer  !byte 0        ; border flash countdown (game over)
