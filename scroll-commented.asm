@@ -137,6 +137,8 @@ start                           ; boot entry: reached via BASIC SYS or a direct 
         lda CIA1_ICR            ; read CIA1 ICR to acknowledge and drain any pending CIA1 interrupt flags
         lda CIA2_ICR            ; read CIA2 ICR to acknowledge and drain any pending CIA2 interrupt flags
 
+        jsr show_splash          ; 3-second ARE-TYPE bitmap, before any other init
+
         jsr build_charset       ; construct custom multicolor charset at $2000 (digits, letters, tile glyphs)
         jsr set_colors          ; set VIC background/border colors and color RAM for playfield
         jsr sid_init            ; initialize SID chip: silence all voices, set volume
@@ -268,6 +270,62 @@ rebuild_playfield               ; sei-guarded map fill + A->B copy (safe during 
         jsr copy_a_to_b         ; copy front buffer to back so both start identical
         cli                     ; re-enable IRQs once both buffers are in sync
         rts                     ; return to caller
+
+; =====================================================================
+;  BOOT SPLASH: aretype.kla multicolor bitmap, shown ~3 s at power-on
+;  Data lives in VIC bank 1 (colram $5800, screen $5c00, bitmap $6000)
+;  so the packed bank-0 layout is untouched. Boot-only: runs under
+;  start's sei with IRQs masked, so the wait polls $D012 raster wraps.
+;  Exits with the screen blanked (border-only black); the rest of boot
+;  rebuilds bank 0, then $D011/$D016/$D018 turn the display back on.
+; =====================================================================
+show_splash                     ; boot-only: called once from start, still under sei
+        ; color RAM <- splash color table. Copies 4 x 256: the last 24
+        ; source bytes are zero fill past the 1000-byte table and land
+        ; in the unused color-RAM tail at $dbe8-$dbff.
+        ldx #0                  ; X counts 0..255; four interleaved page copies per pass
+ss_cram lda splash_colram,x     ; page 0 of the Koala color-RAM table (low nibbles used)
+        sta $d800,x             ; color RAM page 0: cells 0-255
+        lda splash_colram+$100,x ; page 1 of the table
+        sta $d900,x             ; color RAM page 1: cells 256-511
+        lda splash_colram+$200,x ; page 2 of the table
+        sta $da00,x             ; color RAM page 2: cells 512-767
+        lda splash_colram+$300,x ; page 3: only 232 real bytes, then zero fill (see above)
+        sta $db00,x             ; color RAM page 3: cells 768-999 + unused tail
+        inx                     ; next byte within each page
+        bne ss_cram             ; wraps to 0 after 256 iterations -> all 4 pages copied
+
+        lda splash_bg            ; Koala background byte (shared bit-pair 00 color)
+        sta BGCOL0              ; $d021: bitmap background color
+        lda #0                  ; black
+        sta BORDER              ; $d020: black border frames the splash
+
+        lda $dd00                ; CIA2 port A: bits 0-1 select the VIC's 16K bank (inverted)
+        and #%11111100          ; clear the bank bits...
+        ora #%00000010          ; ...and select %10 = bank 1 ($4000-$7fff)
+        sta $dd00               ; VIC now fetches all video data from bank 1
+        lda #$78                 ; screen $5c00 (7<<4) + bitmap second half -> $6000
+        sta VICMEM              ; $d018: bitmap screen RAM / bitmap base within the bank
+        lda #%00111011           ; bit5 BMM=1 bitmap mode, bit4 DEN=1 screen on, bit3 25 rows, yscroll=3
+        sta SCROLY              ; $d011: turn the bitmap display on
+        lda #%00011000           ; bit4 MCM=1 multicolor, bit3 40 columns, xscroll=0
+        sta SCROLX              ; $d016: multicolor bitmap = Koala's 160x200 double-wide pixels
+
+        ldx #150                 ; 150 PAL frames = 3.0 s (PAL = 50 frames/s)
+ss_wait lda #251                 ; line 251 is unique per frame ($d012 re-values
+ss_w1   cmp RASTER               ; for lines 256+ stop at 55)
+        bne ss_w1               ; spin until the raster reaches line 251...
+ss_w2   cmp RASTER              ; ...then spin until it moves off the line,
+        beq ss_w2               ; so one pass of the loop = exactly one frame
+        dex                     ; count down the 150 frames
+        bne ss_wait             ; keep holding the splash until X hits 0
+
+        lda #%00001011           ; text mode again but screen OFF: black out the
+        sta SCROLY               ; transition while boot rebuilds bank 0
+        lda $dd00                ; back to VIC bank 0
+        ora #%00000011          ; bank bits %11 = bank 0 ($0000-$3fff, the game's bank)
+        sta $dd00               ; VIC fetches from bank 0 again (screen still blanked)
+        rts                     ; fall back into start; init turns the display on later
 
 ; =====================================================================
 ;  TITLE ROUTINES
@@ -3489,3 +3547,19 @@ mus_drum_data                    ; drum stream: (hit,duration) pairs — 1=kick 
          !byte 1,5,0,5,3,5,0,5,2,5,0,5,1,5,0,5   ; bar 31: K rest H rest S rest K rest
          !byte 1,5,0,5,3,5,0,5,2,5,2,5,2,5,2,5   ; bar 32: K rest H rest S S S S (snare fill / loop point)
          !byte 255                                  ; loop sentinel — restart from bar 1
+
+; =====================================================================
+;  BOOT SPLASH DATA (VIC bank 1) — aretype.kla, Koala format:
+;  2-byte load address, 8000B bitmap, 1000B screen, 1000B colram, 1B bg.
+;  Regenerate with: npx retropixels -c yuv -r 16 -d bayer8x8 \
+;                       -o aretype.kla aretype.png
+;  Screen RAM must be $0400-aligned and the bitmap $2000-aligned inside
+;  the bank; $4000 holds the music, so the bitmap takes $6000.
+; =====================================================================
+* = $5800                       ; color-RAM table: copied to $d800 by show_splash
+splash_colram   !binary "aretype.kla",1000,9002   ; 1000 bytes, one low-nibble color per 4x8 cell
+* = $5c00                       ; bitmap screen RAM ($0400-aligned slot 7 of bank 1)
+splash_screen   !binary "aretype.kla",1000,8002   ; two colors per cell: hi nibble = bit-pair 01, lo = 10
+* = $6000                       ; bitmap ($2000-aligned second half of bank 1)
+splash_bitmap   !binary "aretype.kla",8000,2      ; 8000 bytes: 40x25 cells x 8 rows of bit-pairs
+splash_bg       !binary "aretype.kla",1,10002     ; Koala background byte -> $d021 (bit-pair 00)
