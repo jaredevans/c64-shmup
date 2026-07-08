@@ -1,5 +1,7 @@
 # C64 Horizontal Shoot-'Em-Up
 
+<img src="aretype-c64-preview.png" alt="OpeningTitle" width="600" height="400" />
+
 An R-Type-style, horizontally-scrolling shoot-'em-up for the **Commodore 64**, written from
 scratch in 6502 assembly. The whole game is a single source file (`scroll.asm`), assembled with
 [ACME](https://sourceforge.net/projects/acme-crossass/) and tested in the
